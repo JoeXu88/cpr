@@ -26,7 +26,7 @@ int main()
     dumpRespon(response);
 
     auto list_resp = cpr::MultiRequest(cpr::NEW_OPTION(cpr::OPTION_TYPE::GET), cpr::Url(url1),
-                                        cpr::NEW_OPTION(cpr::OPTION_TYPE::HEAD), cpr::Url(url1));
+                                        cpr::NEW_OPTION(cpr::OPTION_TYPE::HEAD), cpr::Url(url2));
 
     for(auto resp : list_resp)
     {
