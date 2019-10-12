@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <functional>
 #include <string>
+#include <iostream>
 
 #include <curl/curl.h>
 
@@ -14,6 +15,8 @@ namespace cpr {
 class Session::Impl {
   public:
     Impl();
+
+    CurlHolder* getHolder();
 
     void SetUrl(const Url& url);
     void SetParameters(const Parameters& parameters);
@@ -38,14 +41,18 @@ class Session::Impl {
     void SetLowSpeed(const LowSpeed& low_speed);
     void SetVerbose(const Verbose& verbose);
     void SetVerifySsl(const VerifySsl& verify);
+    void prepareRequest();
+    void prepareRequest(CURL* curl);
+    Response getResponse(CURLcode curl_error);
+    Response getResponse(CURL* curl, CURLcode curl_error);
 
-    Response Delete();
-    Response Get();
-    Response Head();
-    Response Options();
-    Response Patch();
-    Response Post();
-    Response Put();
+    Response Delete(bool do_request = true);
+    Response Get(bool do_request = true);
+    Response Head(bool do_request = true);
+    Response Options(bool do_request = true);
+    Response Patch(bool do_request = true);
+    Response Post(bool do_request = true);
+    Response Put(bool do_request = true);
 
   private:
     std::unique_ptr<CurlHolder, std::function<void(CurlHolder*)>> curl_;
@@ -56,6 +63,10 @@ class Session::Impl {
     Response makeRequest(CURL* curl);
     static void freeHolder(CurlHolder* holder);
     static CurlHolder* newHolder();
+
+    //response string
+    std::string response_string_;
+    std::string resp_header_string_;
 };
 
 Session::Impl::Impl() {
@@ -98,6 +109,10 @@ CurlHolder* Session::Impl::newHolder() {
     holder->chunk = NULL;
     holder->formpost = NULL;
     return holder;
+}
+
+CurlHolder* Session::Impl::getHolder() {
+    return curl_.get();
 }
 
 void Session::Impl::SetUrl(const Url& url) {
@@ -323,7 +338,7 @@ void Session::Impl::SetVerifySsl(const VerifySsl& verify) {
     }
 }
 
-Response Session::Impl::Delete() {
+Response Session::Impl::Delete(bool do_request) {
     auto curl = curl_->handle;
     if (curl) {
         curl_easy_setopt(curl, CURLOPT_HTTPGET, 0L);
@@ -331,70 +346,78 @@ Response Session::Impl::Delete() {
         curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "DELETE");
     }
 
-    return makeRequest(curl);
+    return do_request? makeRequest(curl) : Response();
 }
 
-Response Session::Impl::Get() {
+Response Session::Impl::Get(bool do_request) {
     auto curl = curl_->handle;
     if (curl) {
         curl_easy_setopt(curl, CURLOPT_NOBODY, 0L);
         curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "GET");
     }
 
-    return makeRequest(curl);
+    return do_request? makeRequest(curl) : Response();
 }
 
-Response Session::Impl::Head() {
+Response Session::Impl::Head(bool do_request) {
     auto curl = curl_->handle;
     if (curl) {
         curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, NULL);
         curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);
     }
 
-    return makeRequest(curl);
+    return do_request? makeRequest(curl) : Response();
 }
 
-Response Session::Impl::Options() {
+Response Session::Impl::Options(bool do_request) {
     auto curl = curl_->handle;
     if (curl) {
         curl_easy_setopt(curl, CURLOPT_NOBODY, 0L);
         curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "OPTIONS");
     }
 
-    return makeRequest(curl);
+    return do_request? makeRequest(curl) : Response();
 }
 
-Response Session::Impl::Patch() {
+Response Session::Impl::Patch(bool do_request) {
     auto curl = curl_->handle;
     if (curl) {
         curl_easy_setopt(curl, CURLOPT_NOBODY, 0L);
         curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "PATCH");
     }
 
-    return makeRequest(curl);
+    return do_request? makeRequest(curl) : Response();
 }
 
-Response Session::Impl::Post() {
+Response Session::Impl::Post(bool do_request) {
     auto curl = curl_->handle;
     if (curl) {
         curl_easy_setopt(curl, CURLOPT_NOBODY, 0L);
         curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "POST");
     }
 
-    return makeRequest(curl);
+    return do_request? makeRequest(curl) : Response();
 }
 
-Response Session::Impl::Put() {
+Response Session::Impl::Put(bool do_request) {
     auto curl = curl_->handle;
     if (curl) {
         curl_easy_setopt(curl, CURLOPT_NOBODY, 0L);
         curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "PUT");
     }
 
-    return makeRequest(curl);
+    return do_request? makeRequest(curl) : Response();
 }
 
-Response Session::Impl::makeRequest(CURL* curl) {
+void Session::Impl::prepareRequest()
+{
+    auto curl = curl_->handle;
+    prepareRequest(curl);
+}
+void Session::Impl::prepareRequest(CURL* curl)
+{
+    if(curl == NULL) return;
+
     if (!parameters_.content.empty()) {
         Url new_url{url_ + "?" + parameters_.content};
         curl_easy_setopt(curl, CURLOPT_URL, new_url.data());
@@ -411,14 +434,21 @@ Response Session::Impl::makeRequest(CURL* curl) {
 
     curl_->error[0] = '\0';
 
-    std::string response_string;
-    std::string header_string;
+    // std::string response_string;
+    // std::string header_string;
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, cpr::util::writeFunction);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_string);
-    curl_easy_setopt(curl, CURLOPT_HEADERDATA, &header_string);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_string_);
+    curl_easy_setopt(curl, CURLOPT_HEADERDATA, &resp_header_string_);
+}
 
-    auto curl_error = curl_easy_perform(curl);
+Response Session::Impl::getResponse(CURLcode curl_error)
+{
+    auto curl = curl_->handle;
+    return getResponse(curl, curl_error);
+}
 
+Response Session::Impl::getResponse(CURL* curl, CURLcode curl_error)
+{
     char* raw_url;
     long response_code;
     double elapsed;
@@ -438,17 +468,27 @@ Response Session::Impl::makeRequest(CURL* curl) {
     curl_slist_free_all(raw_cookies);
 
     return Response{static_cast<std::int32_t>(response_code),
-                    std::move(response_string),
-                    cpr::util::parseHeader(header_string),
+                    std::move(response_string_),
+                    cpr::util::parseHeader(resp_header_string_),
                     std::move(raw_url),
                     elapsed,
                     std::move(cookies),
                     Error(curl_error, curl_->error)};
 }
 
+Response Session::Impl::makeRequest(CURL* curl) {
+    prepareRequest(curl);
+    auto curl_error = curl_easy_perform(curl);
+
+    return getResponse(curl, curl_error);    
+}
+
 // clang-format off
 Session::Session() : pimpl_{ new Impl{} } {}
 Session::~Session() {}
+CurlHolder* Session::getHolder() { return pimpl_->getHolder(); }
+void Session::prepareRequest() { pimpl_->prepareRequest(); }
+Response Session::getResponse(CURLcode curl_error) { return pimpl_->getResponse(curl_error); }
 void Session::SetUrl(const Url& url) { pimpl_->SetUrl(url); }
 void Session::SetParameters(const Parameters& parameters) { pimpl_->SetParameters(parameters); }
 void Session::SetParameters(Parameters&& parameters) { pimpl_->SetParameters(std::move(parameters)); }
@@ -494,13 +534,128 @@ void Session::SetOption(Body&& body) { pimpl_->SetBody(std::move(body)); }
 void Session::SetOption(const LowSpeed& low_speed) { pimpl_->SetLowSpeed(low_speed); }
 void Session::SetOption(const VerifySsl& verify) { pimpl_->SetVerifySsl(verify); }
 void Session::SetOption(const Verbose& verbose) { pimpl_->SetVerbose(verbose); }
-Response Session::Delete() { return pimpl_->Delete(); }
-Response Session::Get() { return pimpl_->Get(); }
-Response Session::Head() { return pimpl_->Head(); }
-Response Session::Options() { return pimpl_->Options(); }
-Response Session::Patch() { return pimpl_->Patch(); }
-Response Session::Post() { return pimpl_->Post(); }
-Response Session::Put() { return pimpl_->Put(); }
+Response Session::Delete(bool do_request) { return pimpl_->Delete(do_request); }
+Response Session::Get(bool do_request) { return pimpl_->Get(do_request); }
+Response Session::Head(bool do_request) { return pimpl_->Head(do_request); }
+Response Session::Options(bool do_request) { return pimpl_->Options(do_request); }
+Response Session::Patch(bool do_request) { return pimpl_->Patch(do_request); }
+Response Session::Post(bool do_request) { return pimpl_->Post(do_request); }
+Response Session::Put(bool do_request) { return pimpl_->Put(do_request); }
 // clang-format on
+
+
+MultiSession::MultiSession()
+: current_session_(NULL)
+{
+    multiCurl_ = curl_multi_init();
+}
+
+MultiSession::~MultiSession()
+{
+    for(auto ms : map_session_)
+    {
+        Session* s = ms.second;
+        if(s != NULL)
+        {
+            curl_multi_remove_handle(multiCurl_, s->getHolder()->handle);
+        }
+        delete s;
+    }
+
+    map_session_.clear();
+
+	curl_multi_cleanup(multiCurl_);
+}
+
+std::list<Response> MultiSession::doReuests()
+{
+    for(auto s : map_session_)
+    {
+        s.second->prepareRequest();
+        curl_multi_add_handle(multiCurl_, s.second->getHolder()->handle);
+    }
+
+    int running_handlers = 0;
+    do {
+        curl_multi_wait(multiCurl_, nullptr, 0, 2000, nullptr);  //timeout 2000ms
+        curl_multi_perform(multiCurl_, &running_handlers);
+    } while (running_handlers > 0);
+
+	int         msgs_left;  
+    CURLMsg *   msg;
+    std::list<Response> list_resp;
+    while((msg = curl_multi_info_read(multiCurl_, &msgs_left)))  
+    {  
+        if (CURLMSG_DONE == msg->msg)  
+        {
+            list_resp.emplace_back(map_session_[msg->easy_handle]->getResponse(msg->data.result));
+        }
+    }
+
+    return list_resp;
+}
+
+void MultiSession::SetOption(const NEW_OPTION& new_option)
+{
+    if(new_option.is_new_option) 
+    {
+        Session* s = new Session();
+        switch(new_option.option_type)
+        {
+        case OPTION_TYPE::DEL:
+            s->Delete(false);
+            break;
+        case OPTION_TYPE::GET:
+            s->Get(false);
+            break;
+        case OPTION_TYPE::HEAD:
+            s->Head(false);
+            break;
+        case OPTION_TYPE::OPTIONS:
+            s->Options(false);
+            break;
+        case OPTION_TYPE::PATCH:
+            s->Patch(false);
+            break;
+        case OPTION_TYPE::POST:
+            s->Post(false);
+            break;
+        case OPTION_TYPE::PUT:
+            s->Put(false);
+            break;
+        default:
+            std::cout << "err option, not supported yet" << std::endl;
+            delete s;
+            break;
+        }
+
+        map_session_.emplace(s->getHolder()->handle, s);
+        current_session_ = s;
+    }
+}
+
+void MultiSession::SetOption(const Url& url) { if(current_session_) current_session_->SetUrl(url); }
+void MultiSession::SetOption(const Parameters& parameters) { if(current_session_) current_session_->SetParameters(parameters); }
+void MultiSession::SetOption(Parameters&& parameters) { if(current_session_) current_session_->SetParameters(std::move(parameters)); }
+void MultiSession::SetOption(const Header& header) { if(current_session_) current_session_->SetHeader(header); }
+void MultiSession::SetOption(const Timeout& timeout) { if(current_session_) current_session_->SetTimeout(timeout); }
+void MultiSession::SetOption(const ConnectTimeout& timeout) { if(current_session_) current_session_->SetConnectTimeout(timeout); }
+void MultiSession::SetOption(const Authentication& auth) { if(current_session_) current_session_->SetAuth(auth); }
+void MultiSession::SetOption(const Digest& auth) { if(current_session_) current_session_->SetDigest(auth); }
+void MultiSession::SetOption(const UserAgent& ua) { if(current_session_) current_session_->SetUserAgent(ua); }
+void MultiSession::SetOption(const Payload& payload) { if(current_session_) current_session_->SetPayload(payload); }
+void MultiSession::SetOption(Payload&& payload) { if(current_session_) current_session_->SetPayload(std::move(payload)); }
+void MultiSession::SetOption(const Proxies& proxies) { if(current_session_) current_session_->SetProxies(proxies); }
+void MultiSession::SetOption(Proxies&& proxies) { if(current_session_) current_session_->SetProxies(std::move(proxies)); }
+void MultiSession::SetOption(const Multipart& multipart) { if(current_session_) current_session_->SetMultipart(multipart); }
+void MultiSession::SetOption(Multipart&& multipart) { if(current_session_) current_session_->SetMultipart(std::move(multipart)); }
+void MultiSession::SetOption(const bool& redirect) { if(current_session_) current_session_->SetRedirect(redirect); }
+void MultiSession::SetOption(const MaxRedirects& max_redirects) { if(current_session_) current_session_->SetMaxRedirects(max_redirects); }
+void MultiSession::SetOption(const Cookies& cookies) { if(current_session_) current_session_->SetCookies(cookies); }
+void MultiSession::SetOption(const Body& body) { if(current_session_) current_session_->SetBody(body); }
+void MultiSession::SetOption(Body&& body) { if(current_session_) current_session_->SetBody(std::move(body)); }
+void MultiSession::SetOption(const LowSpeed& low_speed) { if(current_session_) current_session_->SetLowSpeed(low_speed); }
+void MultiSession::SetOption(const VerifySsl& verify) { if(current_session_) current_session_->SetVerifySsl(verify); }
+void MultiSession::SetOption(const Verbose& verbose) { if(current_session_) current_session_->SetOption(verbose); }
 
 } // namespace cpr

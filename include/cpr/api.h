@@ -4,6 +4,7 @@
 #include <functional>
 #include <future>
 #include <string>
+#include <typeinfo>
 
 #include "cpr/auth.h"
 #include "cpr/cprtypes.h"
@@ -20,6 +21,7 @@ using AsyncResponse = std::future<Response>;
 
 namespace priv {
 
+//single session
 template <typename T>
 void set_option(Session& session, T&& t) {
     session.SetOption(CPR_FWD(t));
@@ -31,7 +33,29 @@ void set_option(Session& session, T&& t, Ts&&... ts) {
     set_option(session, CPR_FWD(ts)...);
 }
 
+//multi sessions
+template <typename T>
+void set_multi_option(MultiSession& session, T&& t) {
+    session.SetOption(CPR_FWD(t));
+}
+
+template <typename T, typename... Ts>
+void set_multi_option(MultiSession& session, T&& t, Ts&&... ts) {
+    set_multi_option(session, CPR_FWD(t));
+    set_multi_option(session, CPR_FWD(ts)...);
+}
+
+
 } // namespace priv
+
+template <typename... Ts>
+std::list<Response> MultiRequest(Ts&&... ts) {
+    MultiSession multis;
+    priv::set_multi_option(multis, CPR_FWD(ts)...);
+
+    return multis.doReuests();
+}
+
 
 // Get methods
 template <typename... Ts>
